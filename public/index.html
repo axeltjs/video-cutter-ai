@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AI Video Cutter</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="p-10 bg-gray-100">
+
+  <h1 class="text-3xl font-bold mb-6">AI Video Cutter</h1>
+
+  <form id="cutForm" class="space-y-4">
+
+    <input type="file" id="video" required class="block">
+
+    <textarea id="timestamps"
+      class="w-full p-3 rounded border"
+      rows="8"
+      placeholder="00:00 - 02:27 Intro&#10;02:28 - 05:31 Topic 1"
+      required></textarea>
+
+    <button class="bg-blue-600 text-white px-4 py-2 rounded"
+      type="submit">Process Video</button>
+
+  </form>
+
+  <div id="output" class="mt-10"></div>
+
+  <script>
+    document.getElementById("cutForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      
+      const formData = new FormData();
+      formData.append("video", document.getElementById("video").files[0]);
+      formData.append("timestamps", document.getElementById("timestamps").value);
+
+      const res = await fetch("/process", { method: "POST", body: formData });
+      const data = await res.json();
+
+      let html = "<h2 class='text-xl font-bold mb-4'>Results:</h2>";
+
+      data.clips.forEach(c => {
+        html += `
+          <div class="mb-3">
+            <p>${c.title}</p>
+            <a class="text-blue-600 underline" href="${c.file}" download>Download</a>
+          </div>
+        `;
+      });
+
+      document.getElementById("output").innerHTML = html;
+    });
+  </script>
+
+</body>
+</html>
