@@ -1,53 +1,102 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>AI Video Cutter</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+    <title>Video Cutter</title>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="p-10 bg-gray-100">
+<body class="bg-gray-100 p-10">
 
-  <h1 class="text-3xl font-bold mb-6">AI Video Cutter</h1>
+  <div class="max-w-2xl mx-auto bg-white shadow p-6 rounded-lg">
 
-  <form id="cutForm" class="space-y-4">
+    <h1 class="text-2xl font-bold mb-4">Video Cutter</h1>
 
-    <input type="file" id="video" required class="block">
+    <!-- Upload Video -->
+    <label class="block mb-2 font-semibold">Upload Video</label>
+    <input id="video" type="file" accept="video/*"
+           class="mb-4 block w-full border rounded p-2">
 
-    <textarea id="timestamps"
-      class="w-full p-3 rounded border"
-      rows="8"
-      placeholder="00:00 - 02:27 Intro&#10;02:28 - 05:31 Topic 1"
-      required></textarea>
+    <!-- Timestamp -->
+    <label class="block mb-2 font-semibold">Timestamps</label>
+    <textarea id="timestamps" rows="10"
+        class="w-full border rounded p-3 mb-4"
+        placeholder="00:00 - 02:27 Opening & Introduction &#10;02:28 - 05:31 About John Doe&#10;05:32 - 09:01 Knowing more about something &#10;..."></textarea>
 
-    <button class="bg-blue-600 text-white px-4 py-2 rounded"
-      type="submit">Process Video</button>
+    <!-- Button -->
+    <button id="processBtn"
+      class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+      Process Video
+    </button>
 
-  </form>
-
-  <div id="output" class="mt-10"></div>
+    <!-- Results -->
+    <div id="results" class="mt-6"></div>
+  </div>
 
   <script>
-    document.getElementById("cutForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      
-      const formData = new FormData();
-      formData.append("video", document.getElementById("video").files[0]);
-      formData.append("timestamps", document.getElementById("timestamps").value);
+    document.getElementById("processBtn").addEventListener("click", async () => {
+      const video = document.getElementById("video").files[0];
+      const timestamps = document.getElementById("timestamps").value;
 
-      const res = await fetch("/process", { method: "POST", body: formData });
-      const data = await res.json();
+      if (!video) {
+        Swal.fire("Error", "Please upload a video!", "error");
+        return;
+      }
+      if (!timestamps.trim()) {
+        Swal.fire("Error", "Please enter timestamps!", "error");
+        return;
+      }
 
-      let html = "<h2 class='text-xl font-bold mb-4'>Results:</h2>";
-
-      data.clips.forEach(c => {
-        html += `
-          <div class="mb-3">
-            <p>${c.title}</p>
-            <a class="text-blue-600 underline" href="${c.file}" download>Download</a>
-          </div>
-        `;
+      // Show loading SweetAlert
+      Swal.fire({
+        title: "Processing...",
+        text: "Your video is being sliced. Please wait.",
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
       });
 
-      document.getElementById("output").innerHTML = html;
+      const formData = new FormData();
+      formData.append("video", video);
+      formData.append("timestamps", timestamps);
+
+      try {
+        const res = await fetch("/process", {
+          method: "POST",
+          body: formData
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          Swal.fire("Error", data.error || "Processing failed", "error");
+          return;
+        }
+
+        // Success Alert
+        Swal.fire({
+          icon: "success",
+          title: "Done!",
+          text: "Video clips generated successfully."
+        });
+
+        // Show download list
+        const resultBox = document.getElementById("results");
+        resultBox.innerHTML = `
+          <h2 class="text-xl font-semibold mb-3">Download Clips</h2>
+          <ul class="list-disc ml-6">
+            ${data.files.map(f => `
+              <li>
+                <a href="/output/${f}" class="text-blue-600 underline" download>
+                  ${f}
+                </a>
+              </li>
+            `).join("")}
+          </ul>
+        `;
+
+      } catch (e) {
+        console.error(e);
+        Swal.fire("Error", "Unexpected server error", "error");
+      }
     });
   </script>
 

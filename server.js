@@ -13,50 +13,97 @@ app.use(express.static("public"));
 const upload = multer({ dest: "uploads/" });
 
 // Parse timestamps "00:00 - 02:30 Something"
-function parseTimestamps(raw) {
-  const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
+function parseTimestamps(raw, fileName) {
+  if (!raw || typeof raw !== "string") return [];
+
+  const lines = raw
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .filter(l => typeof l === "string" && l.trim().length > 0);
 
   return lines.map((line, index) => {
-    const [range, ...titleParts] = line.split(" ");
-    const [start, end] = range.split("-");
+    // Contoh: "00:00 - 02:53 Opening & intro"
+    const match = line.match(
+      /(\d{1,2}:\d{2}(?::\d{2})?)\s*-\s*(\d{1,2}:\d{2}(?::\d{2})?)/
+    );
+
+    if (!match) {
+      console.warn("Invalid timestamp format, skipped:", line);
+      return null;
+    }
+
     return {
-      start: start.trim(),
-      end: end.trim(),
-      filename: `clip_${index + 1}.mp4`,
-      title: titleParts.join(" ")
+      start: normalizeTime(match[1]),
+      end: normalizeTime(match[2]),
+      name: `[Part - ${index + 1}] ${fileName}`,
+      raw: line
     };
-  });
+  }).filter(Boolean);
 }
 
+function normalizeTime(t) {
+  // Converts "2:53" → "00:02:53"
+  const parts = t.split(":");
+  if (parts.length === 2) return `00:${parts[0].padStart(2, "0")}:${parts[1]}`;
+  if (parts.length === 3) {
+    return [
+      parts[0].padStart(2, "0"),
+      parts[1].padStart(2, "0"),
+      parts[2].padStart(2, "0")
+    ].join(":");
+  }
+  return t;
+}
+
+
 // Upload video + timestamps
-app.post("/process", upload.single("video"), (req, res) => {
-  const videoPath = req.file.path;
-  const timestamps = parseTimestamps(req.body.timestamps);
-  const outputDir = "output";
+app.post("/process", upload.single("video"), async (req, res) => {
+    const timestampsRaw = req.body.timestamps;
+    const fileName = req.file.originalname;
+    const timestamps = parseTimestamps(timestampsRaw, fileName);
 
-  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
+    if (!timestamps.length)
+        return res.status(400).json({ error: "Invalid timestamps" });
 
-  const results = [];
+    const inputPath = req.file.path;
+    const jobs = [];
+    const outputFiles = [];
 
-  let pending = timestamps.length;
+    timestamps.forEach((clip, i) => {
+        if (!clip) return;
 
-  timestamps.forEach(item => {
-    const outFile = path.join(outputDir, item.filename);
-    const cmd = `ffmpeg -i ${videoPath} -ss ${item.start} -to ${item.end} -c copy ${outFile}`;
+        const outputFile = path.join("output", clip.name);
+        outputFiles.push(clip.name);
 
-    exec(cmd, (err) => {
-      if (err) console.log("FFmpeg error:", err);
+        const cmd = `ffmpeg -i ${inputPath} -ss ${clip.start} -to ${clip.end} -c:v libx264 -preset ultrafast -c:a aac "${outputFile}"`;
+        // const cmd = `ffmpeg -i ${inputPath} -ss ${clip.start} -to ${clip.end} -c copy "${outputFile}"`;
 
-      results.push({
-        title: item.title,
-        file: `/output/${item.filename}`
-      });
+        // Bungkus dalam Promise
+        const job = new Promise((resolve, reject) => {
+        exec(cmd, (err) => {
+            if (err) reject(err);
+            else resolve();
+        });
+        });
 
-      pending--;
-      if (pending === 0) res.json({ clips: results });
+        jobs.push(job);
     });
-  });
+
+    try {
+        await Promise.all(jobs);
+
+        res.json({
+        status: "done",
+        message: "All clips successfully generated",
+        files: outputFiles
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "FFmpeg processing failed" });
+    }
 });
+
 
 app.use("/output", express.static("output"));
 
